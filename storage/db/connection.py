@@ -1,9 +1,7 @@
-"""
-SQLite database manager with WAL mode and transaction support.
-"""
 import sqlite3
 import os
 import json
+import gzip
 from pathlib import Path
 from typing import Generator
 from contextlib import contextmanager
@@ -58,15 +56,66 @@ class Database:
         with self.transaction() as conn:
             conn.executescript(schema_sql)
             self._migrate_db(conn)
-            self._seed_stations_if_empty(conn)
+            self._seed_demo_snapshot_if_empty(conn)
         logger.info(f"Database initialized at {self.db_path} with WAL mode")
 
-    def _seed_stations_if_empty(self, conn: sqlite3.Connection):
-        """Seed station metadata on empty database to preserve default network stations."""
+    def _seed_demo_snapshot_if_empty(self, conn: sqlite3.Connection):
+        """
+        Seed baseline demo telemetry snapshot on empty database for seamless cloud deployment.
+        Loads storage/seeds/demo_snapshot.json.gz if available, or falls back to stations.json.
+        """
+        cur = conn.execute("SELECT COUNT(*) FROM raw_observations;")
+        raw_count = cur.fetchone()[0]
+        cur = conn.execute("SELECT COUNT(*) FROM processed_observations;")
+        proc_count = cur.fetchone()[0]
+
+        # If observations already exist, do NOT overwrite or re-seed
+        if raw_count > 0 or proc_count > 0:
+            return
+
+        snapshot_path = Path(__file__).parent.parent / "seeds" / "demo_snapshot.json.gz"
+        if snapshot_path.exists():
+            try:
+                with gzip.open(snapshot_path, "rb") as f:
+                    snapshot_data = json.loads(f.read().decode("utf-8"))
+
+                tables_ordered = [
+                    "stations",
+                    "raw_observations",
+                    "processed_observations",
+                    "feature_records",
+                    "decisions",
+                    "health_state",
+                    "simulation_runs",
+                    "ground_truth_labels",
+                    "integrity_events",
+                ]
+
+                total_inserted = 0
+                for table_name in tables_ordered:
+                    rows = snapshot_data.get(table_name, [])
+                    if not rows:
+                        continue
+                    cols = list(rows[0].keys())
+                    placeholders = ",".join(["?"] * len(cols))
+                    sql = f"INSERT OR IGNORE INTO {table_name} ({','.join(cols)}) VALUES ({placeholders})"
+                    records = [[r.get(c) for c in cols] for r in rows]
+                    conn.executemany(sql, records)
+                    total_inserted += len(records)
+                logger.info(f"Successfully seeded demo snapshot into fresh database ({total_inserted} records across {len(tables_ordered)} tables)")
+                return
+            except Exception as e:
+                logger.error(f"Failed to load demo snapshot: {e}")
+
+        # Fallback to station-only seed if snapshot is unavailable
+        self._seed_stations_fallback(conn)
+
+    def _seed_stations_fallback(self, conn: sqlite3.Connection):
+        """Fallback seed station metadata if snapshot is absent."""
         cur = conn.execute("SELECT COUNT(*) FROM stations;")
         count = cur.fetchone()[0]
         if count > 0:
-            return  # Already populated, never duplicate
+            return
 
         seed_path = Path(__file__).parent.parent / "seeds" / "stations.json"
         if not seed_path.exists():
@@ -100,9 +149,9 @@ class Database:
                     if s.get("station_id")
                 ]
                 conn.executemany(sql, records)
-                logger.info(f"Seeded {len(records)} stations into fresh database")
+                logger.info(f"Seeded {len(records)} stations from fallback seed")
         except Exception as e:
-            logger.error(f"Failed to seed stations: {e}")
+            logger.error(f"Failed to seed fallback stations: {e}")
 
     def _migrate_db(self, conn: sqlite3.Connection):
         """Safely ensure all required columns exist in existing SQLite tables."""
