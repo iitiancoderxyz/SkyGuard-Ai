@@ -2,13 +2,18 @@
 Dashboard API Client: Communicates with FastAPI backend over HTTP.
 Invariant INV-10: Never imports engine code or opens SQLite directly.
 """
+import os
 import requests
 from typing import Dict, Any, List, Optional
 
+DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
+
 
 class APIClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: Optional[str] = None):
+        if not base_url:
+            base_url = os.getenv("SKYGUARD_API_URL") or DEFAULT_API_BASE_URL
+        self.base_url = str(base_url).strip().rstrip("/")
 
     def get_health(self) -> Dict[str, Any]:
         try:
