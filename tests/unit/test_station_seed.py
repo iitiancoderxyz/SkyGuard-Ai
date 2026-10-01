@@ -1,6 +1,6 @@
 """
 Unit tests for station metadata seeding mechanism.
-Verifies that a fresh database initializes with all 592 seed stations and does not duplicate on repeat init.
+Verifies that a fresh database initializes with all seed stations and does not duplicate on repeat init.
 """
 import pytest
 import sqlite3
@@ -11,7 +11,7 @@ from storage.repositories.station_repo import StationRepository
 
 
 def test_station_seed_on_empty_database():
-    """Verify that a fresh SQLite database automatically populates the 636 seed stations."""
+    """Verify that a fresh SQLite database automatically populates the 658 seed stations."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_db_path = str(Path(tmpdir) / "test_seed.db")
 
@@ -21,7 +21,7 @@ def test_station_seed_on_empty_database():
         repo = StationRepository(database=test_db)
         stations = repo.list_stations()
 
-        assert len(stations) == 636
+        assert len(stations) == 658
         station_ids = [s["station_id"] for s in stations]
         assert "AWS-001" in station_ids
         assert "AWS_DEMO_01" in station_ids
@@ -37,18 +37,18 @@ def test_station_seed_idempotency_no_duplicates():
         # 1. First initialization
         test_db = Database(db_path=tmp_db_path)
         repo = StationRepository(database=test_db)
-        assert len(repo.list_stations()) == 636
+        assert len(repo.list_stations()) == 658
 
         # 2. Second initialization on existing populated DB
         test_db.init_db()
-        assert len(repo.list_stations()) == 636
+        assert len(repo.list_stations()) == 658
 
 
 def test_local_database_station_count():
-    """Verify that the primary local database maintains all 592 seed stations."""
+    """Verify that the primary local database maintains all seed stations."""
     from storage.repositories.station_repo import station_repo
     stations = station_repo.list_stations()
-    assert len(stations) >= 592
+    assert len(stations) >= 658
     station_ids = {s["station_id"] for s in stations}
     assert "AWS-001" in station_ids
     assert "AWS_DEMO_01" in station_ids

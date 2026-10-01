@@ -59,56 +59,102 @@ class Database:
             self._seed_demo_snapshot_if_empty(conn)
         logger.info(f"Database initialized at {self.db_path} with WAL mode")
 
+    # Insert order must respect FK constraints:
+    #   stations → raw_observations → processed_observations → feature_records
+    #   processed_observations → decisions
+    #   raw_observations → integrity_events
+    _SEED_TABLES_ORDERED = [
+        "stations",
+        "raw_observations",
+        "processed_observations",
+        "feature_records",
+        "decisions",
+        "health_state",
+        "simulation_runs",
+        "ground_truth_labels",
+        "integrity_events",
+    ]
+    _SEED_BATCH_SIZE = 500  # rows inserted per executemany call — keeps RAM <10 MB peak
+    _SEED_DIR = Path(__file__).parent.parent / "seeds" / "demo"
+
     def _seed_demo_snapshot_if_empty(self, conn: sqlite3.Connection):
         """
         Seed baseline demo telemetry snapshot on empty database for seamless cloud deployment.
-        Loads storage/seeds/demo_snapshot.json.gz if available, or falls back to stations.json.
+
+        Loads one per-table JSONL.gz file at a time from storage/seeds/demo/<table>.jsonl.gz,
+        streaming rows in batches of _SEED_BATCH_SIZE to stay well inside Render Free 512 MB RAM.
+        Falls back to stations.json if the demo/ directory is absent.
         """
-        cur = conn.execute("SELECT COUNT(*) FROM raw_observations;")
-        raw_count = cur.fetchone()[0]
-        cur = conn.execute("SELECT COUNT(*) FROM processed_observations;")
-        proc_count = cur.fetchone()[0]
+        raw_count = conn.execute("SELECT COUNT(*) FROM raw_observations;").fetchone()[0]
+        proc_count = conn.execute("SELECT COUNT(*) FROM processed_observations;").fetchone()[0]
 
         # If observations already exist, do NOT overwrite or re-seed
         if raw_count > 0 or proc_count > 0:
             return
 
-        snapshot_path = Path(__file__).parent.parent / "seeds" / "demo_snapshot.json.gz"
-        if snapshot_path.exists():
+        seed_dir = self._SEED_DIR
+        if not seed_dir.exists():
+            logger.warning(
+                f"Demo seed directory not found at {seed_dir}. Falling back to station-only seed."
+            )
+            self._seed_stations_fallback(conn)
+            return
+
+        total_inserted = 0
+        tables_loaded = 0
+
+        for table_name in self._SEED_TABLES_ORDERED:
+            file_path = seed_dir / f"{table_name}.jsonl.gz"
+            if not file_path.exists():
+                logger.debug(f"Seed file absent, skipping: {file_path.name}")
+                continue
+
             try:
-                with gzip.open(snapshot_path, "rb") as f:
-                    snapshot_data = json.loads(f.read().decode("utf-8"))
+                table_rows = 0
+                batch: list = []
 
-                tables_ordered = [
-                    "stations",
-                    "raw_observations",
-                    "processed_observations",
-                    "feature_records",
-                    "decisions",
-                    "health_state",
-                    "simulation_runs",
-                    "ground_truth_labels",
-                    "integrity_events",
-                ]
+                with gzip.open(file_path, "rt", encoding="utf-8") as gz_f:
+                    for line in gz_f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        batch.append(json.loads(line))
+                        if len(batch) >= self._SEED_BATCH_SIZE:
+                            inserted = self._insert_seed_batch(conn, table_name, batch)
+                            table_rows += inserted
+                            batch = []
 
-                total_inserted = 0
-                for table_name in tables_ordered:
-                    rows = snapshot_data.get(table_name, [])
-                    if not rows:
-                        continue
-                    cols = list(rows[0].keys())
-                    placeholders = ",".join(["?"] * len(cols))
-                    sql = f"INSERT OR IGNORE INTO {table_name} ({','.join(cols)}) VALUES ({placeholders})"
-                    records = [[r.get(c) for c in cols] for r in rows]
-                    conn.executemany(sql, records)
-                    total_inserted += len(records)
-                logger.info(f"Successfully seeded demo snapshot into fresh database ({total_inserted} records across {len(tables_ordered)} tables)")
-                return
+                    # Flush remaining rows
+                    if batch:
+                        table_rows += self._insert_seed_batch(conn, table_name, batch)
+
+                total_inserted += table_rows
+                tables_loaded += 1
+                logger.debug(f"Seeded {table_rows:,} rows into {table_name}")
+
             except Exception as e:
-                logger.error(f"Failed to load demo snapshot: {e}")
+                logger.error(f"Failed to seed {table_name} from {file_path.name}: {e}")
 
-        # Fallback to station-only seed if snapshot is unavailable
-        self._seed_stations_fallback(conn)
+        if total_inserted > 0:
+            logger.info(
+                f"Successfully seeded demo snapshot ({total_inserted:,} rows across "
+                f"{tables_loaded} tables) from {seed_dir}"
+            )
+        else:
+            logger.warning("Demo seed directory present but no rows inserted; falling back to stations.json.")
+            self._seed_stations_fallback(conn)
+
+    @staticmethod
+    def _insert_seed_batch(conn: sqlite3.Connection, table_name: str, batch: list) -> int:
+        """Insert a batch of row dicts into table_name using INSERT OR IGNORE. Returns rows inserted."""
+        if not batch:
+            return 0
+        cols = list(batch[0].keys())
+        placeholders = ",".join(["?"] * len(cols))
+        sql = f"INSERT OR IGNORE INTO {table_name} ({','.join(cols)}) VALUES ({placeholders})"
+        records = [[row.get(c) for c in cols] for row in batch]
+        conn.executemany(sql, records)
+        return len(records)
 
     def _seed_stations_fallback(self, conn: sqlite3.Connection):
         """Fallback seed station metadata if snapshot is absent."""
