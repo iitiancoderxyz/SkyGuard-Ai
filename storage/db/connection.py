@@ -3,6 +3,7 @@ SQLite database manager with WAL mode and transaction support.
 """
 import sqlite3
 import os
+import json
 from pathlib import Path
 from typing import Generator
 from contextlib import contextmanager
@@ -57,7 +58,51 @@ class Database:
         with self.transaction() as conn:
             conn.executescript(schema_sql)
             self._migrate_db(conn)
+            self._seed_stations_if_empty(conn)
         logger.info(f"Database initialized at {self.db_path} with WAL mode")
+
+    def _seed_stations_if_empty(self, conn: sqlite3.Connection):
+        """Seed station metadata on empty database to preserve default network stations."""
+        cur = conn.execute("SELECT COUNT(*) FROM stations;")
+        count = cur.fetchone()[0]
+        if count > 0:
+            return  # Already populated, never duplicate
+
+        seed_path = Path(__file__).parent.parent / "seeds" / "stations.json"
+        if not seed_path.exists():
+            return
+
+        try:
+            with open(seed_path, "r", encoding="utf-8") as f:
+                stations_data = json.load(f)
+
+            if isinstance(stations_data, list) and stations_data:
+                sql = """
+                INSERT OR IGNORE INTO stations (
+                    station_id, latitude, longitude, elevation,
+                    expected_cadence_seconds, allowed_lateness_seconds,
+                    communication_gap_slots, config_version, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                records = [
+                    (
+                        s.get("station_id"),
+                        s.get("latitude"),
+                        s.get("longitude"),
+                        s.get("elevation"),
+                        s.get("expected_cadence_seconds", 60),
+                        s.get("allowed_lateness_seconds", 120),
+                        s.get("communication_gap_slots", 3),
+                        s.get("config_version", "v1"),
+                        s.get("status", "ACTIVE"),
+                    )
+                    for s in stations_data
+                    if s.get("station_id")
+                ]
+                conn.executemany(sql, records)
+                logger.info(f"Seeded {len(records)} stations into fresh database")
+        except Exception as e:
+            logger.error(f"Failed to seed stations: {e}")
 
     def _migrate_db(self, conn: sqlite3.Connection):
         """Safely ensure all required columns exist in existing SQLite tables."""
