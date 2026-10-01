@@ -1,0 +1,15 @@
+stream_contract:
+  core_meteorological_channels:
+    - temperature
+    - pressure
+    - relative_humidity
+  units:
+    temperature: "degC"
+    pressure: "hPa"
+    relative_humidity: "%"
+  cadence:
+    default_expected_cadence_seconds: 60
+    default_allowed_lateness_seconds: 120
+    communication_gap_threshold_slots: 3
+  disposition_rules:
+    watermark_late_cadences: 2

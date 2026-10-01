@@ -1,0 +1,48 @@
+# Python / Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environments
+.env
+.env.local
+.venv/
+env/
+venv/
+ENV/
+
+# Data & SQLite
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+spool/
+
+# Model store artifacts
+models_store/*
+!models_store/.gitkeep
+
+# Reports & evaluation output
+reports/*
+!reports/.gitkeep
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# Streamlit
+.streamlit/secrets.toml

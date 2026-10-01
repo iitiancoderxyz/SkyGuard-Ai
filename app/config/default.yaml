@@ -1,0 +1,25 @@
+# System defaults
+system:
+  name: TRUST-TWIN
+  version: 1.0.0-phase1
+  mode: NORMAL
+
+integrity:
+  temperature:
+    min: -80.0
+    max: 70.0
+  pressure:
+    min: 300.0
+    max: 1100.0
+  relative_humidity:
+    min: 0.0
+    max: 100.0
+  flatline_run_threshold: 10
+  watermark_cadences: 2
+
+storage:
+  wal_mode: true
+  busy_timeout_ms: 5000
+  group_commit_ms: 50
+  group_commit_batch_size: 100
+  spool_limit_records: 10000

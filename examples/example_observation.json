@@ -1,0 +1,12 @@
+{
+  "station_id": "AWS_MUMBAI_01",
+  "timestamp": "2026-09-30T10:00:00Z",
+  "temperature": 29.8,
+  "pressure": 1008.4,
+  "relative_humidity": 78.5,
+  "latitude": 19.0760,
+  "longitude": 72.8777,
+  "elevation": 14.0,
+  "source_type": "LIVE",
+  "source_sequence": "1001"
+}
