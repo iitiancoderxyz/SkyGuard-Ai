@@ -25,8 +25,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TRUST-TWIN API",
-    description="Quarantine-Gated Sequential Evidence Monitor for AWS (SIH26073)",
+    title="SkyGuard AI API",
+    description="Real-Time Explainable Anomaly Detection and Sensor Health Monitoring for Automatic Weather Stations (SIH26073)",
     version=settings.app_version,
     lifespan=lifespan,
 )
